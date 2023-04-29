@@ -29,9 +29,9 @@ let textgenerationwebui_settings = {
     stopping_strings: [],
     truncation_length: 2048,
     ban_eos_token: false,
-    skip_special_tokens: true,
     streaming: false,
-    streaming_url: 'ws://127.0.0.1:5005/api/v1/stream',
+    fn_index: 43,
+    skip_special_tokens: true,
 };
 
 let textgenerationwebui_presets = [];
@@ -54,9 +54,8 @@ const setting_names = [
     "seed",
     "add_bos_token",
     "ban_eos_token",
+    "fn_index",
     "skip_special_tokens",
-    "streaming",
-    "streaming_url",
 ];
 
 function selectPreset(name) {
@@ -110,15 +109,10 @@ $(document).ready(function () {
         $(`#${i}_textgenerationwebui`).attr("x-setting-id", i);
         $(document).on("input", `#${i}_textgenerationwebui`, function () {
             const isCheckbox = $(this).attr('type') == 'checkbox';
-            const isText = $(this).attr('type') == 'text';
             const id = $(this).attr("x-setting-id");
 
             if (isCheckbox) {
                 const value = $(this).prop('checked');
-                textgenerationwebui_settings[id] = value;
-            }
-            else if (isText) {
-                const value = $(this).val();
                 textgenerationwebui_settings[id] = value;
             }
             else {
@@ -138,13 +132,9 @@ function setSettingByName(i, value, trigger) {
     }
 
     const isCheckbox = $(`#${i}_textgenerationwebui`).attr('type') == 'checkbox';
-    const isText = $(`#${i}_textgenerationwebui`).attr('type') == 'text';
     if (isCheckbox) {
         const val = Boolean(value);
         $(`#${i}_textgenerationwebui`).prop('checked', val);
-    }
-    else if (isText) {
-        $(`#${i}_textgenerationwebui`).val(value);
     }
     else {
         const val = parseFloat(value);
@@ -160,10 +150,10 @@ function setSettingByName(i, value, trigger) {
 async function generateTextGenWithStreaming(generate_data, signal) {
     const response = await fetch('/generate_textgenerationwebui', {
         headers: {
-            'Content-Type': 'application/json',
             'X-CSRF-Token': token,
+            'Content-Type': 'application/json',
             'X-Response-Streaming': true,
-            'X-Streaming-URL': textgenerationwebui_settings.streaming_url,
+            'X-Gradio-Streaming-Function': textgenerationwebui_settings.fn_index,
         },
         body: JSON.stringify(generate_data),
         method: 'POST',
@@ -177,7 +167,22 @@ async function generateTextGenWithStreaming(generate_data, signal) {
         while (true) {
             const { done, value } = await reader.read();
             let response = decoder.decode(value);
-            getMessage += response;
+            let delta = '';
+
+            try {
+                delta = response.split('\n').map(x => {
+                    try {
+                        return JSON.parse(x).delta;
+                    } catch { 
+                        return '';
+                    }
+                }).join('');
+            }
+            catch {
+                delta = '';
+            }
+
+            getMessage += delta;
 
             if (done) {
                 return;
