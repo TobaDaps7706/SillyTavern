@@ -19,6 +19,16 @@
     padding: 10px;
 }
 
+.attachmentListItem.disabled .attachmentListItemName {
+    text-decoration: line-through;
+    opacity: 0.75;
+}
+
+.attachmentListItem.disabled .attachmentFileIcon {
+    opacity: 0.75;
+    cursor: not-allowed;
+}
+
 .attachmentListItemSize {
     min-width: 4em;
     text-align: right;
@@ -26,4 +36,28 @@
 
 .attachmentListItemCreated {
     text-align: right;
+}
+
+.attachmentListItemCheckboxContainer,
+.attachmentBulkActionsContainer,
+.attachmentsBulkEditCheckbox {
+    display: none;
+}
+
+@supports selector(:has(*)) {
+    .dataBankAttachments:has(.attachmentsBulkEditCheckbox:checked) .attachmentsBulkEditButton {
+        color: var(--golden);
+    }
+
+    .dataBankAttachments:has(.attachmentsBulkEditCheckbox:checked) .attachmentBulkActionsContainer {
+        display: flex;
+    }
+
+    .dataBankAttachments:has(.attachmentsBulkEditCheckbox:checked) .attachmentListItemCheckboxContainer {
+        display: inline-flex;
+    }
+
+    .dataBankAttachments:has(.attachmentsBulkEditCheckbox:checked) .attachmentFileIcon {
+        display: none;
+    }
 }

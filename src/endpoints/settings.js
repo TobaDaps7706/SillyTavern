@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
+const _ = require('lodash');
 const writeFileAtomicSync = require('write-file-atomic').sync;
 const { PUBLIC_DIRECTORIES, SETTINGS_FILE } = require('../constants');
 const { getConfigValue, generateTimestamp, removeOldBackups } = require('../util');
@@ -9,6 +10,32 @@ const { getAllUserHandles, getUserDirectories } = require('../users');
 
 const ENABLE_EXTENSIONS = getConfigValue('enableExtensions', true);
 const ENABLE_ACCOUNTS = getConfigValue('enableUserAccounts', false);
+
+// 10 minutes
+const AUTOSAVE_INTERVAL = 10 * 60 * 1000;
+
+/**
+ * Map of functions to trigger settings autosave for a user.
+ * @type {Map<string, function>}
+ */
+const AUTOSAVE_FUNCTIONS = new Map();
+
+/**
+ * Triggers autosave for a user every 10 minutes.
+ * @param {string} handle User handle
+ * @returns {void}
+ */
+function triggerAutoSave(handle) {
+    if (!AUTOSAVE_FUNCTIONS.has(handle)) {
+        const throttledAutoSave = _.throttle(() => backupUserSettings(handle), AUTOSAVE_INTERVAL);
+        AUTOSAVE_FUNCTIONS.set(handle, throttledAutoSave);
+    }
+
+    const functionToCall = AUTOSAVE_FUNCTIONS.get(handle);
+    if (functionToCall) {
+        functionToCall();
+    }
+}
 
 /**
  * Reads and parses files from a directory.
@@ -83,10 +110,6 @@ function readPresetsFromDirectory(directoryPath, options = {}) {
 
 async function backupSettings() {
     try {
-        if (!fs.existsSync(PUBLIC_DIRECTORIES.backups)) {
-            fs.mkdirSync(PUBLIC_DIRECTORIES.backups);
-        }
-
         const userHandles = await getAllUserHandles();
 
         for (const handle of userHandles) {
@@ -104,7 +127,7 @@ async function backupSettings() {
  */
 function backupUserSettings(handle) {
     const userDirectories = getUserDirectories(handle);
-    const backupFile = path.join(PUBLIC_DIRECTORIES.backups, `${getFilePrefix(handle)}${generateTimestamp()}.json`);
+    const backupFile = path.join(userDirectories.backups, `${getFilePrefix(handle)}${generateTimestamp()}.json`);
     const sourceFile = path.join(userDirectories.root, SETTINGS_FILE);
 
     if (!fs.existsSync(sourceFile)) {
@@ -112,7 +135,7 @@ function backupUserSettings(handle) {
     }
 
     fs.copyFileSync(sourceFile, backupFile);
-    removeOldBackups(`settings_${handle}`);
+    removeOldBackups(userDirectories.backups, `settings_${handle}`);
 }
 
 const router = express.Router();
@@ -121,6 +144,7 @@ router.post('/save', jsonParser, function (request, response) {
     try {
         const pathToSettings = path.join(request.user.directories.root, SETTINGS_FILE);
         writeFileAtomicSync(pathToSettings, JSON.stringify(request.body, null, 4), 'utf8');
+        triggerAutoSave(request.user.profile.handle);
         response.send({ result: 'ok' });
     } catch (err) {
         console.log(err);
@@ -199,12 +223,12 @@ router.post('/get', jsonParser, (request, response) => {
 
 router.post('/get-snapshots', jsonParser, async (request, response) => {
     try {
-        const snapshots = fs.readdirSync(PUBLIC_DIRECTORIES.backups);
+        const snapshots = fs.readdirSync(request.user.directories.backups);
         const userFilesPattern = getFilePrefix(request.user.profile.handle);
         const userSnapshots = snapshots.filter(x => x.startsWith(userFilesPattern));
 
         const result = userSnapshots.map(x => {
-            const stat = fs.statSync(path.join(PUBLIC_DIRECTORIES.backups, x));
+            const stat = fs.statSync(path.join(request.user.directories.backups, x));
             return { date: stat.ctimeMs, name: x, size: stat.size };
         });
 
@@ -224,7 +248,7 @@ router.post('/load-snapshot', jsonParser, async (request, response) => {
         }
 
         const snapshotName = request.body.name;
-        const snapshotPath = path.join(PUBLIC_DIRECTORIES.backups, snapshotName);
+        const snapshotPath = path.join(request.user.directories.backups, snapshotName);
 
         if (!fs.existsSync(snapshotPath)) {
             return response.sendStatus(404);
@@ -258,7 +282,7 @@ router.post('/restore-snapshot', jsonParser, async (request, response) => {
         }
 
         const snapshotName = request.body.name;
-        const snapshotPath = path.join(PUBLIC_DIRECTORIES.backups, snapshotName);
+        const snapshotPath = path.join(request.user.directories.backups, snapshotName);
 
         if (!fs.existsSync(snapshotPath)) {
             return response.sendStatus(404);

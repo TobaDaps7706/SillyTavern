@@ -12,6 +12,14 @@
         "type": "theme"
     },
     {
+        "filename": "themes/Celestial Macaron.json",
+        "type": "theme"
+    },
+    {
+        "filename": "themes/Dark V 1.0.json",
+        "type": "theme"
+    },
+    {
         "filename": "backgrounds/__transparent.png",
         "type": "background"
     },
@@ -105,14 +113,6 @@
     },
     {
         "filename": "default_Seraphina.png",
-        "type": "character"
-    },
-    {
-        "filename": "default_CodingSensei.png",
-        "type": "character"
-    },
-    {
-        "filename": "default_FluxTheCat.png",
         "type": "character"
     },
     {
@@ -484,7 +484,11 @@
         "type": "context"
     },
     {
-        "filename": "presets/context/DreamGen Role-Play V1.json",
+        "filename": "presets/context/DreamGen Role-Play V1 ChatML.json",
+        "type": "context"
+    },
+    {
+        "filename": "presets/context/DreamGen Role-Play V1 Llama3.json",
         "type": "context"
     },
     {
@@ -540,6 +544,10 @@
         "type": "context"
     },
     {
+        "filename": "presets/context/Phi.json",
+        "type": "context"
+    },
+    {
         "filename": "presets/instruct/Adventure.json",
         "type": "instruct"
     },
@@ -560,7 +568,11 @@
         "type": "instruct"
     },
     {
-        "filename": "presets/instruct/DreamGen Role-Play V1.json",
+        "filename": "presets/instruct/DreamGen Role-Play V1 ChatML.json",
+        "type": "instruct"
+    },
+    {
+        "filename": "presets/instruct/DreamGen Role-Play V1 Llama3.json",
         "type": "instruct"
     },
     {
@@ -632,6 +644,10 @@
         "type": "instruct"
     },
     {
+        "filename": "presets/instruct/Phi.json",
+        "type": "instruct"
+    },
+    {
         "filename": "presets/moving-ui/Default.json",
         "type": "moving_ui"
     },
@@ -642,5 +658,21 @@
     {
         "filename": "presets/quick-replies/Default.json",
         "type": "quick_replies"
+    },
+    {
+        "filename": "presets/instruct/Llama-3-Instruct-Names.json",
+        "type": "instruct"
+    },
+    {
+        "filename": "presets/instruct/ChatML-Names.json",
+        "type": "instruct"
+    },
+    {
+        "filename": "presets/context/Llama-3-Instruct-Names.json",
+        "type": "context"
+    },
+    {
+        "filename": "presets/context/ChatML-Names.json",
+        "type": "context"
     }
 ]

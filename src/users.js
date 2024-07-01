@@ -87,6 +87,7 @@ const STORAGE_KEYS = {
  * @property {string} comfyWorkflows - The directory where the ComfyUI workflows are stored
  * @property {string} files - The directory where the uploaded files are stored
  * @property {string} vectors - The directory where the vectors are stored
+ * @property {string} backups - The directory where the backups are stored
  */
 
 /**
@@ -109,6 +110,16 @@ async function ensurePublicDirectoriesExist() {
             }
         }
     }
+    return directoriesList;
+}
+
+/**
+ * Gets a list of all user directories.
+ * @returns {Promise<import('./users').UserDirectoryList[]>} - The list of user directories
+ */
+async function getUserDirectoriesList() {
+    const userHandles = await getAllUserHandles();
+    const directoriesList = userHandles.map(handle => getUserDirectories(handle));
     return directoriesList;
 }
 
@@ -289,7 +300,7 @@ async function migrateUserData() {
                 fs.cpSync(
                     migration.old,
                     path.join(backupDirectory, path.basename(migration.old)),
-                    { recursive: true, force: true }
+                    { recursive: true, force: true },
                 );
                 fs.rmSync(migration.old, { recursive: true, force: true });
             } else {
@@ -299,7 +310,7 @@ async function migrateUserData() {
                 fs.cpSync(
                     migration.old,
                     path.join(backupDirectory, path.basename(migration.old)),
-                    { recursive: true, force: true }
+                    { recursive: true, force: true },
                 );
                 fs.rmSync(migration.old, { recursive: true, force: true });
             }
@@ -602,9 +613,13 @@ function createRouteHandler(directoryFn) {
         try {
             const directory = directoryFn(req);
             const filePath = decodeURIComponent(req.params[0]);
+            const exists = fs.existsSync(path.join(directory, filePath));
+            if (!exists) {
+                return res.sendStatus(404);
+            }
             return res.sendFile(filePath, { root: directory });
         } catch (error) {
-            return res.sendStatus(404);
+            return res.sendStatus(500);
         }
     };
 }
@@ -707,6 +722,7 @@ module.exports = {
     toAvatarKey,
     initUserStorage,
     ensurePublicDirectoriesExist,
+    getUserDirectoriesList,
     getAllUserHandles,
     getUserDirectories,
     setUserDataMiddleware,

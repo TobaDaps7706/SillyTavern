@@ -45,7 +45,6 @@ const {
     forwardFetchResponse,
 } = require('./src/util');
 const { ensureThumbnailCache } = require('./src/endpoints/thumbnails');
-const { loadTokenizers } = require('./src/endpoints/tokenizers');
 
 // Work around a node v20.0.0, v20.1.0, and v20.2.0 bug. The issue was fixed in v20.3.0.
 // https://github.com/nodejs/node/issues/47822#issuecomment-1564708870
@@ -137,7 +136,7 @@ const disableCsrf = cliArguments.disableCsrf ?? getConfigValue('disableCsrfProte
 const basicAuthMode = cliArguments.basicAuthMode ?? getConfigValue('basicAuthMode', DEFAULT_BASIC_AUTH);
 const enableAccounts = getConfigValue('enableUserAccounts', DEFAULT_ACCOUNTS);
 
-const { UPLOADS_PATH } = require('./src/constants');
+const uploadsPath = path.join(dataRoot, require('./src/constants').UPLOADS_DIRECTORY);
 
 // CORS Settings //
 const CORS = cors({
@@ -263,10 +262,14 @@ app.get('/login', async (request, response) => {
         return response.redirect('/');
     }
 
-    const autoLogin = await userModule.tryAutoLogin(request);
+    try {
+        const autoLogin = await userModule.tryAutoLogin(request);
 
-    if (autoLogin) {
-        return response.redirect('/');
+        if (autoLogin) {
+            return response.redirect('/');
+        }
+    } catch (error) {
+        console.error('Error during auto-login:', error);
     }
 
     return response.sendFile('login.html', { root: path.join(process.cwd(), 'public') });
@@ -280,9 +283,11 @@ app.use('/api/users', require('./src/endpoints/users-public').router);
 
 // Everything below this line requires authentication
 app.use(userModule.requireLoginMiddleware);
+app.get('/api/ping', (_, response) => response.sendStatus(204));
 
 // File uploads
-app.use(multer({ dest: UPLOADS_PATH, limits: { fieldSize: 10 * 1024 * 1024 } }).single('avatar'));
+app.use(multer({ dest: uploadsPath, limits: { fieldSize: 10 * 1024 * 1024 } }).single('avatar'));
+app.use(require('./src/middleware/multerMonkeyPatch'));
 
 // User data mount
 app.use('/', userModule.router);
@@ -298,8 +303,8 @@ app.get('/version', async function (_, response) {
 
 function cleanUploads() {
     try {
-        if (fs.existsSync(UPLOADS_PATH)) {
-            const uploads = fs.readdirSync(UPLOADS_PATH);
+        if (fs.existsSync(uploadsPath)) {
+            const uploads = fs.readdirSync(uploadsPath);
 
             if (!uploads.length) {
                 return;
@@ -307,7 +312,7 @@ function cleanUploads() {
 
             console.debug(`Cleaning uploads folder (${uploads.length} files)`);
             uploads.forEach(file => {
-                const pathToFile = path.join(UPLOADS_PATH, file);
+                const pathToFile = path.join(uploadsPath, file);
                 fs.unlinkSync(pathToFile);
             });
         }
@@ -398,6 +403,11 @@ redirect('/api/content/import', '/api/content/importURL');
 
 // Redirect deprecated moving UI endpoints
 redirect('/savemovingui', '/api/moving-ui/save');
+
+// Redirect Serp endpoints
+redirect('/api/serpapi/search', '/api/search/serpapi');
+redirect('/api/serpapi/visit', '/api/search/visit');
+redirect('/api/serpapi/transcript', '/api/search/transcript');
 
 // Moving UI
 app.use('/api/moving-ui', require('./src/endpoints/moving-ui').router);
@@ -494,8 +504,8 @@ app.use('/api/extra/classify', require('./src/endpoints/classify').router);
 // Image captioning
 app.use('/api/extra/caption', require('./src/endpoints/caption').router);
 
-// Web search extension
-app.use('/api/serpapi', require('./src/endpoints/serpapi').router);
+// Web search and scraping
+app.use('/api/search', require('./src/endpoints/search').router);
 
 // The different text generation APIs
 
@@ -514,6 +524,9 @@ app.use('/api/backends/scale-alt', require('./src/endpoints/backends/scale-alt')
 // Speech (text-to-speech and speech-to-text)
 app.use('/api/speech', require('./src/endpoints/speech').router);
 
+// Azure TTS
+app.use('/api/azure', require('./src/endpoints/azure').router);
+
 const tavernUrl = new URL(
     (cliArguments.ssl ? 'https://' : 'http://') +
     (listen ? '0.0.0.0' : '127.0.0.1') +
@@ -526,7 +539,10 @@ const autorunUrl = new URL(
     (':' + server_port),
 );
 
-const setupTasks = async function () {
+/**
+ * Tasks that need to be run before the server starts listening.
+ */
+const preSetupTasks = async function () {
     const version = await getVersion();
 
     // Print formatted header
@@ -539,28 +555,21 @@ const setupTasks = async function () {
     }
     console.log();
 
-    // TODO: do endpoint init functions depend on certain directories existing or not existing? They should be callable
-    // in any order for encapsulation reasons, but right now it's unknown if that would break anything.
-    await userModule.initUserStorage(dataRoot);
-
-    if (listen && !basicAuthMode && enableAccounts) {
-        await userModule.checkAccountsProtection();
-    }
-
-    await settingsEndpoint.init();
-    const directories = await userModule.ensurePublicDirectoriesExist();
-    await userModule.migrateUserData();
+    const directories = await userModule.getUserDirectoriesList();
     await contentManager.checkForNewContent(directories);
     await ensureThumbnailCache();
     cleanUploads();
 
-    await loadTokenizers();
+    await settingsEndpoint.init();
     await statsEndpoint.init();
 
     const cleanupPlugins = await loadPlugins();
     const consoleTitle = process.title;
 
+    let isExiting = false;
     const exitProcess = async () => {
+        if (isExiting) return;
+        isExiting = true;
         statsEndpoint.onExit();
         if (typeof cleanupPlugins === 'function') {
             await cleanupPlugins();
@@ -576,8 +585,12 @@ const setupTasks = async function () {
         console.error('Uncaught exception:', err);
         exitProcess();
     });
+};
 
-
+/**
+ * Tasks that need to be run after the server starts listening.
+ */
+const postSetupTasks = async function () {
     console.log('Launching...');
 
     if (autorun) open(autorunUrl.toString());
@@ -597,6 +610,9 @@ const setupTasks = async function () {
         }
     }
 
+    if (listen && !basicAuthMode && enableAccounts) {
+        await userModule.checkAccountsProtection();
+    }
 };
 
 /**
@@ -638,21 +654,28 @@ function setWindowTitle(title) {
     }
 }
 
-if (cliArguments.ssl) {
-    https.createServer(
-        {
-            cert: fs.readFileSync(cliArguments.certPath),
-            key: fs.readFileSync(cliArguments.keyPath),
-        }, app)
-        .listen(
-            Number(tavernUrl.port) || 443,
-            tavernUrl.hostname,
-            setupTasks,
-        );
-} else {
-    http.createServer(app).listen(
-        Number(tavernUrl.port) || 80,
-        tavernUrl.hostname,
-        setupTasks,
-    );
-}
+// User storage module needs to be initialized before starting the server
+userModule.initUserStorage(dataRoot)
+    .then(userModule.ensurePublicDirectoriesExist)
+    .then(userModule.migrateUserData)
+    .then(preSetupTasks)
+    .finally(() => {
+        if (cliArguments.ssl) {
+            https.createServer(
+                {
+                    cert: fs.readFileSync(cliArguments.certPath),
+                    key: fs.readFileSync(cliArguments.keyPath),
+                }, app)
+                .listen(
+                    Number(tavernUrl.port) || 443,
+                    tavernUrl.hostname,
+                    postSetupTasks,
+                );
+        } else {
+            http.createServer(app).listen(
+                Number(tavernUrl.port) || 80,
+                tavernUrl.hostname,
+                postSetupTasks,
+            );
+        }
+    });
